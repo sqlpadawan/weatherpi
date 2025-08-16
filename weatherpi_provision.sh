@@ -30,9 +30,15 @@ if systemctl is-active --quiet dhcpcd; then
 fi
 
 ### 1. Update system
-echo "📦 Upgrading packages non-interactively..."
+echo "📦 Running apt update..."
 export DEBIAN_FRONTEND=noninteractive
-sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade | tee /var/log/pi_upgrade.log
+sudo apt-get update -y || echo "⚠️ apt update failed"
+
+echo "📦 Upgrading packages non-interactively..."
+sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade | tee /var/log/pi_upgrade.log || {
+  echo "🔁 Retrying upgrade with --fix-missing..."
+  sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade --fix-missing
+}
 
 ### 2. Enable I2C
 echo "🔌 Enabling I2C..."
@@ -50,34 +56,19 @@ else
 fi
 
 ### 4. Conditionally set static IP on wlan0
-echo "🌐 Checking static IP configuration for wlan0..."
-
-if $USE_DHCPCD; then
-  echo "📄 Using dhcpcd for static IP configuration..."
-  DHCPCD_FILE="/etc/dhcpcd.conf"
-  DESIRED_BLOCK=$(cat <<EOF
+STATIC_CONF=$(cat <<EOF
 interface wlan0
-static ip_address=${STATIC_IP}/24
-static routers=${ROUTER_IP}
-static domain_name_servers=${DNS_IP}
+static ip_address=$STATIC_IP/24
+static routers=$ROUTER_IP
+static domain_name_servers=$DNS_IP
 EOF
-  )
-  CURRENT_BLOCK=$(awk '/^interface wlan0$/,/^$/' "$DHCPCD_FILE" 2>/dev/null || echo "")
-  if [[ "$CURRENT_BLOCK" != "$DESIRED_BLOCK" ]]; then
-    echo "🔧 Updating static IP configuration for wlan0 in dhcpcd.conf..."
-    sudo sed -i '/^interface wlan0$/,/^$/d' "$DHCPCD_FILE"
-    echo "$DESIRED_BLOCK" | sudo tee -a "$DHCPCD_FILE" > /dev/null
-  else
-    echo "✅ Static IP configuration already matches. Skipping."
-  fi
+)
+
+if ! grep -q "interface wlan0" /etc/dhcpcd.conf; then
+  echo "📄 Adding static IP config to dhcpcd.conf..."
+  echo "$STATIC_CONF" | sudo tee -a /etc/dhcpcd.conf > /dev/null
 else
-  echo "📄 Using NetworkManager for static IP configuration..."
-  NM_FILE="/etc/NetworkManager/system-connections/wlan0.nmconnection"
-  if [[ ! -f "$NM_FILE" ]]; then
-    echo "❌ NetworkManager config for wlan0 not found. You may need to create it manually or use nmcli."
-  else
-    echo "ℹ️ Static IP configuration via NetworkManager is not yet automated in this script."
-  fi
+  echo "✅ Static IP config already present. Skipping."
 fi
 
 ### 4b. Disable power saving on wlan0
@@ -103,21 +94,31 @@ echo "📦 Checking and installing required packages..."
 
 REQUIRED_PACKAGES=(
   python3-pip
-  git
   i2c-tools
-  libpq-dev
-  postgresql
   rpi-connect
 )
 
 for pkg in "${REQUIRED_PACKAGES[@]}"; do
   if ! dpkg -s "$pkg" > /dev/null 2>&1; then
     echo "📦 Installing $pkg..."
-    sudo apt-get install -y "$pkg"
+    sudo apt-get install -y "$pkg" || {
+      echo "🔁 Retrying $pkg install with --fix-missing..."
+      sudo apt-get install -y "$pkg" --fix-missing
+    }
   else
     echo "✅ $pkg already installed. Skipping."
   fi
 done
+
+### 🧪 Verify pip installation
+if ! command -v pip3 &> /dev/null; then
+  echo "⚠️ pip3 not found after installing python3-pip. Attempting manual bootstrap..."
+  curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+  sudo python3 get-pip.py
+  rm get-pip.py
+else
+  echo "✅ pip3 is available."
+fi
 
 ### 6. Reboot
 echo "🎉 Provisioning complete for $NEW_HOSTNAME. Rebooting..."
