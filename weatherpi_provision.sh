@@ -8,8 +8,8 @@ set -e
 ##  192.168.9.1 \
 ##  192.168.9.1 \
 ##  https://raw.githubusercontent.com/sqlpadawan/raspi_key/main/raspi_key.pub \
-##  piadmin
-  
+##  raspi
+
 ### 🧠 Parse arguments
 NEW_HOSTNAME="$1"
 STATIC_IP="$2"
