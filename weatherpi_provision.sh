@@ -1,25 +1,24 @@
 #!/bin/bash
 set -e
 
-##chmod +x weatherpi_provision.sh
-##sudo weatherpi_provision.sh \
-##  weatherpi \
-##  192.168.9.105 \
-##  192.168.9.1 \
-##  192.168.9.1 \
-##  https://raw.githubusercontent.com/sqlpadawan/raspi_key/main/raspi_key.pub \
-##  raspi
+## Usage:
+## chmod +x weatherpi_provision.sh
+## sudo ./weatherpi_provision.sh \
+##   weatherpi \
+##   192.168.9.105 \
+##   192.168.9.1 \
+##   192.168.9.1 \
+##   raspi
 
 ### 🧠 Parse arguments
 NEW_HOSTNAME="$1"
 STATIC_IP="$2"
 ROUTER_IP="$3"
 DNS_IP="$4"
-SSH_KEY_URL="$5"
-USERNAME="$6"
+USERNAME="$5"
 
-if [[ -z "$NEW_HOSTNAME" || -z "$STATIC_IP" || -z "$ROUTER_IP" || -z "$DNS_IP" || -z "$SSH_KEY_URL" || -z "$USERNAME" ]]; then
-  echo "❌ Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <ssh_key_url> <username>"
+if [[ -z "$NEW_HOSTNAME" || -z "$STATIC_IP" || -z "$ROUTER_IP" || -z "$DNS_IP" || -z "$USERNAME" ]]; then
+  echo "❌ Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <username>"
   exit 1
 fi
 
@@ -31,7 +30,6 @@ if systemctl is-active --quiet dhcpcd; then
 fi
 
 ### 1. Update system
-#sudo apt update && sudo apt upgrade -y
 echo "📦 Upgrading packages non-interactively..."
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade | tee /var/log/pi_upgrade.log
@@ -79,7 +77,6 @@ else
     echo "❌ NetworkManager config for wlan0 not found. You may need to create it manually or use nmcli."
   else
     echo "ℹ️ Static IP configuration via NetworkManager is not yet automated in this script."
-    # Optional: Add nmcli commands here to configure static IP
   fi
 fi
 
@@ -101,137 +98,27 @@ else
   echo "✅ Power saving already disabled on wlan0. Skipping."
 fi
 
-### 5. Install cloud-init
-echo "☁️ Installing cloud-init..."
-sudo apt install -y cloud-init cloud-guest-utils curl
+### 5. Install required packages directly
+echo "📦 Checking and installing required packages..."
 
-sudo tee /etc/cloud/cloud.cfg.d/99_pi.cfg > /dev/null <<EOF
-datasource_list: [ NoCloud ]
-EOF
-
-### 6. Fetch SSH key from Git
-echo "🔑 Fetching SSH key from $SSH_KEY_URL..."
-SSH_KEY=$(curl -fsSL "$SSH_KEY_URL")
-if [[ -z "$SSH_KEY" ]]; then
-  echo "❌ Failed to fetch SSH key from $SSH_KEY_URL"
-  exit 1
-fi
-
-if ! echo "$SSH_KEY" | grep -Eq '^ssh-(rsa|ed25519) '; then
-  echo "❌ Invalid SSH public key format"
-  exit 1
-fi
-
-### 7. Conditionally seed cloud-init files
-echo "📦 Checking cloud-init seed files..."
-SEED_DIR="/var/lib/cloud/seed/nocloud-net"
-USER_DATA_PATH="$SEED_DIR/user-data"
-META_DATA_PATH="$SEED_DIR/meta-data"
-
-mkdir -p "$SEED_DIR"
-
-DESIRED_USER_DATA=$(cat <<EOF
-#cloud-config
-hostname: $NEW_HOSTNAME
-users:
-  - name: $USERNAME
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    ssh_authorized_keys:
-      - $SSH_KEY
-
-package_update: true
-packages:
-  - python3-pip
-  - git
-  - i2c-tools
-  - libpq-dev
-  - postgresql
-
-write_files:
-  - path: /home/$USERNAME/log_aht20_data.py
-    permissions: '0755'
-    content: |
-      #!/home/$USERNAME/weather_env/bin/python
-      import time
-      import board
-      import adafruit_ahtx0
-      import psycopg2
-      sensor = adafruit_ahtx0.AHTx0(board.I2C())
-      conn = psycopg2.connect("dbname=sensordb user=$USERNAME password=yourpassword")
-      cur = conn.cursor()
-      while True:
-          temp = sensor.temperature
-          hum = sensor.relative_humidity
-          cur.execute("INSERT INTO readings (timestamp, temperature, humidity) VALUES (NOW(), %s, %s)", (temp, hum))
-          conn.commit()
-          time.sleep(60)
-
-runcmd:
-  - python3 -m pip install --upgrade pip virtualenv
-  - if [ ! -d "/home/$USERNAME/weather_env" ]; then python3 -m virtualenv /home/$USERNAME/weather_env; fi
-  - /home/$USERNAME/weather_env/bin/pip install --upgrade pip
-  - if ! /home/$USERNAME/weather_env/bin/pip show adafruit-circuitpython-ahtx0 > /dev/null 2>&1; then
-      /home/$USERNAME/weather_env/bin/pip install adafruit-circuitpython-ahtx0 adafruit-blinka psycopg2-binary;
-    fi
-  - chown -R $USERNAME:$USERNAME /home/$USERNAME/weather_env
-  - chown $USERNAME:$USERNAME /home/$USERNAME/log_aht20_data.py
-  - chmod +x /home/$USERNAME/log_aht20_data.py
-  - if ! dpkg -s rpi-connect > /dev/null 2>&1; then
-      apt update && apt install -y rpi-connect;
-    fi
-  - if ! dpkg -s nginx > /dev/null 2>&1; then
-      apt update && apt install -y nginx;
-      systemctl enable nginx;
-      systemctl start nginx;
-    fi
-  - touch /home/$USERNAME/logger.log
-  - chown $USERNAME:$USERNAME /home/$USERNAME/logger.log
-  - CRON_LINE="# */10 * * * * /home/$USERNAME/weather_env/bin/python /home/$USERNAME/log_aht20_data.py >> /home/$USERNAME/logger.log 2>&1"
-  - (crontab -u $USERNAME -l 2>/dev/null | grep -F "$CRON_LINE") || (crontab -u $USERNAME -l 2>/dev/null; echo "$CRON_LINE") | crontab -u $USERNAME -
-EOF
+REQUIRED_PACKAGES=(
+  python3-pip
+  git
+  i2c-tools
+  libpq-dev
+  postgresql
+  rpi-connect
 )
 
-DESIRED_META_DATA=$(cat <<EOF
-instance-id: pi-instance
-local-hostname: $NEW_HOSTNAME
-EOF
-)
+for pkg in "${REQUIRED_PACKAGES[@]}"; do
+  if ! dpkg -s "$pkg" > /dev/null 2>&1; then
+    echo "📦 Installing $pkg..."
+    sudo apt-get install -y "$pkg"
+  else
+    echo "✅ $pkg already installed. Skipping."
+  fi
+done
 
-USER_HASH_NEW=$(echo "$DESIRED_USER_DATA" | sha256sum | cut -d ' ' -f1)
-META_HASH_NEW=$(echo "$DESIRED_META_DATA" | sha256sum | cut -d ' ' -f1)
-
-USER_HASH_EXISTING=""
-META_HASH_EXISTING=""
-
-if [ -f "$USER_DATA_PATH" ]; then
-  USER_HASH_EXISTING=$(sha256sum "$USER_DATA_PATH" | cut -d ' ' -f1)
-fi
-if [ -f "$META_DATA_PATH" ]; then
-  META_HASH_EXISTING=$(sha256sum "$META_DATA_PATH" | cut -d ' ' -f1)
-fi
-
-if [[ "$USER_HASH_NEW" != "$USER_HASH_EXISTING" || "$META_HASH_NEW" != "$META_HASH_EXISTING" ]]; then
-  echo "🔄 Updating cloud-init seed files..."
-  echo "$DESIRED_USER_DATA" | sudo tee "$USER_DATA_PATH" > /dev/null
-  echo "$DESIRED_META_DATA" | sudo tee "$META_DATA_PATH" > /dev/null
-else
-  echo "✅ Cloud-init seed files already match. Skipping."
-fi
-
-### 8. Trigger cloud-init
-echo "🚀 Triggering cloud-init..."
-sudo cloud-init clean
-sudo cloud-init init
-sudo cloud-init modules --mode=config
-sudo cloud-init modules --mode=final
-
-### 9. Optional cleanup
-SCRIPT_PATH="/home/$USERNAME/pi_provision.sh"
-if [ -f "$SCRIPT_PATH" ]; then
-  echo "🧹 Cleaning up provisioning script..."
-  sudo rm "$SCRIPT_PATH"
-fi
-
+### 6. Reboot
 echo "🎉 Provisioning complete for $NEW_HOSTNAME. Rebooting..."
 sudo reboot
