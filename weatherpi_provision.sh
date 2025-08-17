@@ -78,7 +78,7 @@ fi
 
 ### 5. Install required packages
 echo "Installing required packages..."
-REQUIRED_PKGS=(python3-pip i2c-tools rpi-connect)
+REQUIRED_PKGS=(python3-pip i2c-tools rpi-connect-lite)
 
 for pkg in "${REQUIRED_PKGS[@]}"; do
   if ! dpkg -s "$pkg" &> /dev/null; then
@@ -112,6 +112,14 @@ if ! command -v pip3 &> /dev/null; then
   sudo python3 get-pip.py && rm get-pip.py
 else
   echo "pip3 is available."
+fi
+
+### 8. Enable user-lingering
+if loginctl show-user "$USERNAME" | grep -q '^Linger=yes'; then
+    echo "[INFO] Linger already enabled for user '$USERNAME'"
+else
+    echo "[INFO] Enabling linger for user '$USERNAME'"
+    sudo loginctl enable-linger "$USERNAME"
 fi
 
 ### 🎉 Final step
