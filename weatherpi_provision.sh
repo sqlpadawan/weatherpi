@@ -78,7 +78,7 @@ if [[ -n "$CON_NAME" ]]; then
   nmcli con mod "$CON_NAME" ipv4.method manual
 
   # Bring the connection down and up to apply changes
-  nmcli con down "$CON_NAME" && nmcli con up "$CON_NAME"
+  #nmcli con down "$CON_NAME" && nmcli con up "$CON_NAME"
 
   echo "✅ Static IP configuration applied via NetworkManager"
 else 
