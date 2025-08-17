@@ -5,9 +5,9 @@ set -euo pipefail
 ## chmod +x weatherpi_provision.sh
 ## sudo ./weatherpi_provision.sh <hostname> <static_ip> <router_ip> <dns_ip> <username>
 
-### 🧠 Parse arguments
+### Parse arguments
 if [[ $# -ne 6 ]]; then
-  echo "❌ Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <username>"
+  echo "Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <username>"
   exit 1
 fi
 
@@ -28,41 +28,61 @@ systemctl is-active --quiet dhcpcd && USE_DHCPCD=true
 echo "Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -y || echo "apt update failed"
-sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade || {
-  echo "🔁 Retrying upgrade with --fix-missing..."
-  sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade --fix-missing
+sudo apt-get -y -o Dpkg::Options::="--force-confnew" upgrade || {
+  echo "Retrying upgrade with --fix-missing..."
+  sudo apt-get -y -o Dpkg::Options::="--force-confnew" upgrade --fix-missing
 }
 
 ### 2. Enable I2C
-echo "🔌 Enabling I2C..."
+echo "Enabling I2C..."
 sudo raspi-config nonint do_i2c 0
 
 ### 3. Set hostname if needed
 CURRENT_HOSTNAME=$(hostname)
 if [[ "$CURRENT_HOSTNAME" != "$NEW_HOSTNAME" ]]; then
-  echo "🖥️ Updating hostname to $NEW_HOSTNAME..."
+  echo "Updating hostname to $NEW_HOSTNAME..."
   echo "$NEW_HOSTNAME" | sudo tee /etc/hostname > /dev/null
   sudo sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$NEW_HOSTNAME/" /etc/hosts
   sudo hostnamectl set-hostname "$NEW_HOSTNAME"
 else
-  echo "✅ Hostname already set. Skipping."
+  echo "Hostname already set. Skipping."
 fi
 
 ### 4. Configure static IP on wlan0
-DHCPCD_CONF="/etc/dhcpcd.conf"
-STATIC_BLOCK=$(cat <<EOF
-interface wlan0
-static ip_address=$STATIC_IP/24
-static routers=$ROUTER_IP
-static domain_name_servers=$DNS_IP
-EOF
-)
+#DHCPCD_CONF="/etc/dhcpcd.conf"
+#STATIC_BLOCK=$(cat <<EOF
+#interface wlan0
+#static ip_address=$STATIC_IP/24
+#static routers=$ROUTER_IP
+#static domain_name_servers=$DNS_IP
+#EOF
+#)
 
-if ! grep -q "interface wlan0" "$DHCPCD_CONF"; then
-  echo "Adding static IP config to $DHCPCD_CONF..."
-  echo "$STATIC_BLOCK" | sudo tee -a "$DHCPCD_CONF" > /dev/null
-else
-  echo "Static IP config already present. Skipping."
+#if ! grep -q "interface wlan0" "$DHCPCD_CONF"; then
+#  echo "Adding static IP config to $DHCPCD_CONF..."
+#  echo "$STATIC_BLOCK" | sudo tee -a "$DHCPCD_CONF" > /dev/null
+#else
+#  echo "Static IP config already present. Skipping."
+#fi
+
+# Get the active connection name for wlan0
+CON_NAME=$(nmcli -t -f NAME,DEVICE connection show --active | grep "^.*:wlan0$" | cut -d: -f1)
+
+if [[ -n "$CON_NAME" ]]; then  
+  echo "Configuring static IP for NetworkManager connection: $CON_NAME"
+
+  # Apply static IP settings
+  nmcli con mod "$CON_NAME" ipv4.addresses "$STATIC_IP/24"
+  nmcli con mod "$CON_NAME" ipv4.gateway "$ROUTER_IP"
+  nmcli con mod "$CON_NAME" ipv4.dns "$DNS_IP"
+  nmcli con mod "$CON_NAME" ipv4.method manual
+
+  # Bring the connection down and up to apply changes
+  nmcli con down "$CON_NAME" && nmcli con up "$CON_NAME"
+
+  echo "✅ Static IP configuration applied via NetworkManager"
+else 
+  echo "❌ No active NetworkManager connection found for wlan0"
 fi
 
 ### 4b. Disable wlan0 power saving
@@ -93,9 +113,26 @@ for pkg in "${REQUIRED_PKGS[@]}"; do
   fi
 done
 
-### 6. Install SSH key if provided
+### 6. Verify pip3
+if ! command -v pip3 &> /dev/null; then
+  echo "pip3 missing. Bootstrapping manually..."
+  curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+  sudo python3 get-pip.py && rm get-pip.py
+else
+  echo "pip3 is available."
+fi
+
+### 7. Enable user-lingering
+if loginctl show-user "$USERNAME" | grep -q '^Linger=yes'; then
+    echo "[INFO] Linger already enabled for user '$USERNAME'"
+else
+    echo "[INFO] Enabling linger for user '$USERNAME'"
+    sudo loginctl enable-linger "$USERNAME"
+fi
+
+### 8. Install SSH key if provided
 if [[ "$SSH_KEY_URL" != "none" ]]; then
-  echo "🔐 Installing SSH key from $SSH_KEY_URL for user $USERNAME..."
+  echo "Installing SSH key from $SSH_KEY_URL for user $USERNAME..."
   AUTH_KEYS="/home/$USERNAME/.ssh/authorized_keys"
   sudo mkdir -p "$(dirname "$AUTH_KEYS")"
   sudo curl -fsSL "$SSH_KEY_URL" | sudo tee "$AUTH_KEYS" > /dev/null
@@ -106,23 +143,6 @@ else
   echo "No SSH key URL provided. Skipping SSH setup."
 fi
 
-### 7. Verify pip3
-if ! command -v pip3 &> /dev/null; then
-  echo "pip3 missing. Bootstrapping manually..."
-  curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-  sudo python3 get-pip.py && rm get-pip.py
-else
-  echo "pip3 is available."
-fi
-
-### 8. Enable user-lingering
-if loginctl show-user "$USERNAME" | grep -q '^Linger=yes'; then
-    echo "[INFO] Linger already enabled for user '$USERNAME'"
-else
-    echo "[INFO] Enabling linger for user '$USERNAME'"
-    sudo loginctl enable-linger "$USERNAME"
-fi
-
-### 🎉 Final step
+### Final step
 echo "Provisioning complete for $NEW_HOSTNAME. Rebooting..."
 sudo reboot
