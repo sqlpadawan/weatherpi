@@ -28,9 +28,9 @@ systemctl is-active --quiet dhcpcd && USE_DHCPCD=true
 echo "Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -y || echo "apt update failed"
-sudo apt-get -y -o Dpkg::Options::="--force-confnew" upgrade || {
+sudo apt-get -y -o Dpkg::Options::="--force-confnew" full-upgrade || {
   echo "Retrying upgrade with --fix-missing..."
-  sudo apt-get -y -o Dpkg::Options::="--force-confnew" upgrade --fix-missing
+  sudo apt-get -y -o Dpkg::Options::="--force-confnew" full-upgrade --fix-missing
 }
 
 ### 2. Enable I2C
@@ -90,11 +90,11 @@ WLAN_CONF="/etc/NetworkManager/conf.d/wifi-powersave-off.conf"
 DESIRED_CONF="[connection]\nwifi.powersave = 2"
 
 if [[ ! -f "$WLAN_CONF" || "$(<"$WLAN_CONF")" != "$DESIRED_CONF" ]]; then
-  echo "Disabling power saving on wlan0..."
+  echo "✅ Disabling power saving on wlan0..."
   echo -e "$DESIRED_CONF" | sudo tee "$WLAN_CONF" > /dev/null
-  sudo systemctl restart NetworkManager
+  #sudo systemctl restart NetworkManager
 else
-  echo "Power saving already disabled. Skipping."
+  echo "✅ Power saving already disabled. Skipping."
 fi
 
 ### 5. Install required packages
@@ -103,30 +103,30 @@ REQUIRED_PKGS=(python3-pip i2c-tools rpi-connect-lite)
 
 for pkg in "${REQUIRED_PKGS[@]}"; do
   if ! dpkg -s "$pkg" &> /dev/null; then
-    echo "Installing $pkg..."
+    echo "✅ Installing $pkg..."
     sudo apt-get install -y "$pkg" || {
       echo "Retrying $pkg install with --fix-missing..."
       sudo apt-get install -y "$pkg" --fix-missing
     }
   else
-    echo "$pkg already installed. Skipping."
+    echo "✅ $pkg already installed. Skipping."
   fi
 done
 
 ### 6. Verify pip3
 if ! command -v pip3 &> /dev/null; then
-  echo "pip3 missing. Bootstrapping manually..."
+  echo "❌ pip3 missing. Bootstrapping manually..."
   curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
   sudo python3 get-pip.py && rm get-pip.py
 else
-  echo "pip3 is available."
+  echo "✅ pip3 is available."
 fi
 
 ### 7. Enable user-lingering
 if loginctl show-user "$USERNAME" | grep -q '^Linger=yes'; then
-    echo "[INFO] Linger already enabled for user '$USERNAME'"
+    echo "✅ [INFO] Linger already enabled for user '$USERNAME'"
 else
-    echo "[INFO] Enabling linger for user '$USERNAME'"
+    echo "✅ [INFO] Enabling linger for user '$USERNAME'"
     sudo loginctl enable-linger "$USERNAME"
 fi
 
@@ -138,11 +138,11 @@ if [[ "$SSH_KEY_URL" != "none" ]]; then
   sudo curl -fsSL "$SSH_KEY_URL" | sudo tee "$AUTH_KEYS" > /dev/null
   sudo chown "$USERNAME:$USERNAME" "$AUTH_KEYS"
   sudo chmod 600 "$AUTH_KEYS"
-  echo "SSH key installed."
+  echo "✅ SSH key installed."
 else
   echo "No SSH key URL provided. Skipping SSH setup."
 fi
 
 ### Final step
-echo "Provisioning complete for $NEW_HOSTNAME. Rebooting..."
+echo "✅ Provisioning complete for $NEW_HOSTNAME. Rebooting..."
 sudo reboot
