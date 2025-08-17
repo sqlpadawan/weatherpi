@@ -6,7 +6,7 @@ set -euo pipefail
 ## sudo ./weatherpi_provision.sh <hostname> <static_ip> <router_ip> <dns_ip> <username>
 
 ### 🧠 Parse arguments
-if [[ $# -ne 5 ]]; then
+if [[ $# -ne 6 ]]; then
   echo "❌ Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <username>"
   exit 1
 fi
@@ -16,6 +16,7 @@ STATIC_IP="$2"
 ROUTER_IP="$3"
 DNS_IP="$4"
 USERNAME="$5"
+SSH_KEY_URL="$6"
 
 echo "Starting provisioning for $NEW_HOSTNAME with user $USERNAME..."
 
