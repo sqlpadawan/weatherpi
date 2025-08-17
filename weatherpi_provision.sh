@@ -1,41 +1,33 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 ## Usage:
 ## chmod +x weatherpi_provision.sh
-## sudo ./weatherpi_provision.sh \
-##   weatherpi \
-##   192.168.9.105 \
-##   192.168.9.1 \
-##   192.168.9.1 \
-##   raspi
+## sudo ./weatherpi_provision.sh <hostname> <static_ip> <router_ip> <dns_ip> <username>
 
 ### 🧠 Parse arguments
+if [[ $# -ne 5 ]]; then
+  echo "❌ Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <username>"
+  exit 1
+fi
+
 NEW_HOSTNAME="$1"
 STATIC_IP="$2"
 ROUTER_IP="$3"
 DNS_IP="$4"
 USERNAME="$5"
 
-if [[ -z "$NEW_HOSTNAME" || -z "$STATIC_IP" || -z "$ROUTER_IP" || -z "$DNS_IP" || -z "$USERNAME" ]]; then
-  echo "❌ Usage: $0 <hostname> <static_ip> <router_ip> <dns_ip> <username>"
-  exit 1
-fi
+echo "Starting provisioning for $NEW_HOSTNAME with user $USERNAME..."
 
-echo "🔧 Starting Raspberry Pi provisioning for $NEW_HOSTNAME with user $USERNAME..."
-
+### Detect dhcpcd presence
 USE_DHCPCD=false
-if systemctl is-active --quiet dhcpcd; then
-  USE_DHCPCD=true
-fi
+systemctl is-active --quiet dhcpcd && USE_DHCPCD=true
 
-### 1. Update system
-echo "📦 Running apt update..."
+### 1. System update
+echo "Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
-sudo apt-get update -y || echo "⚠️ apt update failed"
-
-echo "📦 Upgrading packages non-interactively..."
-sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade | tee /var/log/pi_upgrade.log || {
+sudo apt-get update -y || echo "apt update failed"
+sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade || {
   echo "🔁 Retrying upgrade with --fix-missing..."
   sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade --fix-missing
 }
@@ -44,19 +36,20 @@ sudo apt-get -y -o Dpkg::Options::="--force-confold" upgrade | tee /var/log/pi_u
 echo "🔌 Enabling I2C..."
 sudo raspi-config nonint do_i2c 0
 
-### 3. Conditionally set hostname
+### 3. Set hostname if needed
 CURRENT_HOSTNAME=$(hostname)
 if [[ "$CURRENT_HOSTNAME" != "$NEW_HOSTNAME" ]]; then
-  echo "🖥️ Updating hostname from $CURRENT_HOSTNAME to $NEW_HOSTNAME..."
-  echo "$NEW_HOSTNAME" | sudo tee /etc/hostname
-  sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$NEW_HOSTNAME/" /etc/hosts
+  echo "🖥️ Updating hostname to $NEW_HOSTNAME..."
+  echo "$NEW_HOSTNAME" | sudo tee /etc/hostname > /dev/null
+  sudo sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$NEW_HOSTNAME/" /etc/hosts
   sudo hostnamectl set-hostname "$NEW_HOSTNAME"
 else
-  echo "✅ Hostname already set to $NEW_HOSTNAME. Skipping."
+  echo "✅ Hostname already set. Skipping."
 fi
 
-### 4. Conditionally set static IP on wlan0
-STATIC_CONF=$(cat <<EOF
+### 4. Configure static IP on wlan0
+DHCPCD_CONF="/etc/dhcpcd.conf"
+STATIC_BLOCK=$(cat <<EOF
 interface wlan0
 static ip_address=$STATIC_IP/24
 static routers=$ROUTER_IP
@@ -64,62 +57,63 @@ static domain_name_servers=$DNS_IP
 EOF
 )
 
-if ! grep -q "interface wlan0" /etc/dhcpcd.conf; then
-  echo "📄 Adding static IP config to dhcpcd.conf..."
-  echo "$STATIC_CONF" | sudo tee -a /etc/dhcpcd.conf > /dev/null
+if ! grep -q "interface wlan0" "$DHCPCD_CONF"; then
+  echo "Adding static IP config to $DHCPCD_CONF..."
+  echo "$STATIC_BLOCK" | sudo tee -a "$DHCPCD_CONF" > /dev/null
 else
-  echo "✅ Static IP config already present. Skipping."
+  echo "Static IP config already present. Skipping."
 fi
 
-### 4b. Disable power saving on wlan0
-echo "🔌 Disabling power saving on wlan0..."
-
+### 4b. Disable wlan0 power saving
 WLAN_CONF="/etc/NetworkManager/conf.d/wifi-powersave-off.conf"
-DESIRED_WLAN_CONF=$(cat <<EOF
-[connection]
-wifi.powersave = 2
-EOF
-)
+DESIRED_CONF="[connection]\nwifi.powersave = 2"
 
-if [[ ! -f "$WLAN_CONF" || "$(cat "$WLAN_CONF")" != "$DESIRED_WLAN_CONF" ]]; then
-  echo "🔧 Writing power save config to $WLAN_CONF..."
-  echo "$DESIRED_WLAN_CONF" | sudo tee "$WLAN_CONF" > /dev/null
+if [[ ! -f "$WLAN_CONF" || "$(<"$WLAN_CONF")" != "$DESIRED_CONF" ]]; then
+  echo "Disabling power saving on wlan0..."
+  echo -e "$DESIRED_CONF" | sudo tee "$WLAN_CONF" > /dev/null
   sudo systemctl restart NetworkManager
 else
-  echo "✅ Power saving already disabled on wlan0. Skipping."
+  echo "Power saving already disabled. Skipping."
 fi
 
-### 5. Install required packages directly
-echo "📦 Checking and installing required packages..."
+### 5. Install required packages
+echo "Installing required packages..."
+REQUIRED_PKGS=(python3-pip i2c-tools rpi-connect)
 
-REQUIRED_PACKAGES=(
-  python3-pip
-  i2c-tools
-  rpi-connect
-)
-
-for pkg in "${REQUIRED_PACKAGES[@]}"; do
-  if ! dpkg -s "$pkg" > /dev/null 2>&1; then
-    echo "📦 Installing $pkg..."
+for pkg in "${REQUIRED_PKGS[@]}"; do
+  if ! dpkg -s "$pkg" &> /dev/null; then
+    echo "Installing $pkg..."
     sudo apt-get install -y "$pkg" || {
-      echo "🔁 Retrying $pkg install with --fix-missing..."
+      echo "Retrying $pkg install with --fix-missing..."
       sudo apt-get install -y "$pkg" --fix-missing
     }
   else
-    echo "✅ $pkg already installed. Skipping."
+    echo "$pkg already installed. Skipping."
   fi
 done
 
-### 🧪 Verify pip installation
-if ! command -v pip3 &> /dev/null; then
-  echo "⚠️ pip3 not found after installing python3-pip. Attempting manual bootstrap..."
-  curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-  sudo python3 get-pip.py
-  rm get-pip.py
+### 6. Install SSH key if provided
+if [[ "$SSH_KEY_URL" != "none" ]]; then
+  echo "🔐 Installing SSH key from $SSH_KEY_URL for user $USERNAME..."
+  AUTH_KEYS="/home/$USERNAME/.ssh/authorized_keys"
+  sudo mkdir -p "$(dirname "$AUTH_KEYS")"
+  sudo curl -fsSL "$SSH_KEY_URL" | sudo tee "$AUTH_KEYS" > /dev/null
+  sudo chown "$USERNAME:$USERNAME" "$AUTH_KEYS"
+  sudo chmod 600 "$AUTH_KEYS"
+  echo "SSH key installed."
 else
-  echo "✅ pip3 is available."
+  echo "No SSH key URL provided. Skipping SSH setup."
 fi
 
-### 6. Reboot
-echo "🎉 Provisioning complete for $NEW_HOSTNAME. Rebooting..."
+### 7. Verify pip3
+if ! command -v pip3 &> /dev/null; then
+  echo "pip3 missing. Bootstrapping manually..."
+  curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+  sudo python3 get-pip.py && rm get-pip.py
+else
+  echo "pip3 is available."
+fi
+
+### 🎉 Final step
+echo "Provisioning complete for $NEW_HOSTNAME. Rebooting..."
 sudo reboot
