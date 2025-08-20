@@ -5,26 +5,70 @@ set -euo pipefail
 #PG_VERSION="${PG_VERSION:-15}"
 #PG_USER="${PG_USER:-raspi}"
 #PG_DATA_DIR="${PG_DATA_DIR:-/var/lib/postgresql/${PG_VERSION}/main}"
-#LOG_FILE="/var/log/postgres_setup.log"
 
 ## Usage:
 ## chmod +x weatherpi_postgresql_provision.sh
-## sudo ./weatherpi_postgresql_provision.sh 15 raspi /var/lib/postgresql/15/main /var/log/postgres_setup.log
+## sudo ./weatherpi_postgresql_provision.sh 15 raspi /var/lib/postgresql/15/main 
+## sudo ./weatherpi_postgresql_provision.sh --reset
 
-### Parse arguments
-if [[ $# -ne 4 ]]; then
-  echo "Usage: $0 <PG_VERSION> <PG_USER> <PG_DATA_DIR> <LOG_FILE>"
-  exit 1
-fi
-
-PG_VERSION="$1"
-PG_USER="$2"
-PG_DATA_DIR="$3"
-LOG_FILE="$4"
+LOG_FILE="/var/log/weatherpi_postgresql_provision.log"
 
 # === Logging Function ===
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+reset_postgres() {
+    log "=== PostgreSQL Reset Started ==="
+
+    # Check if any PostgreSQL packages are installed
+    if dpkg -l | grep -q "^ii.*postgresql"; then
+        log "PostgreSQL is installed. Proceeding with reset..."
+
+        # Stop PostgreSQL service if it's running
+        if systemctl is-active --quiet postgresql 2>/dev/null; then
+            log "PostgreSQL service is running. Stopping it..."
+            sudo systemctl stop postgresql
+        else
+            log "PostgreSQL service is not running or not found."
+        fi
+
+        # Also try to stop specific version services
+        sudo systemctl stop postgresql@*.service 2>/dev/null || true
+
+        # Remove PostgreSQL packages
+        log "Removing PostgreSQL packages..."
+        sudo apt-get --purge -y remove postgresql* postgresql-client* postgresql-common* postgresql-contrib* 2>/dev/null || true
+        
+        # Clean up residual configuration
+        sudo apt-get -y autoremove 2>/dev/null || true
+        sudo apt-get -y autoclean 2>/dev/null || true
+
+        # Remove data directories and logs
+        log "Removing PostgreSQL data and configuration..."
+        sudo rm -rf /var/lib/postgresql/
+        sudo rm -rf /var/log/postgresql/
+        sudo rm -rf /etc/postgresql/
+        sudo rm -rf /etc/postgresql-common/
+        
+        # Remove postgres user if it exists
+        if id "postgres" &>/dev/null; then
+            log "Removing 'postgres' user..."
+            sudo deluser --remove-home --quiet postgres 2>/dev/null || true
+            log "Removed 'postgres' user."
+        fi
+
+        # Remove postgres group if it exists
+        if getent group postgres &>/dev/null; then
+            log "Removing 'postgres' group..."
+            sudo delgroup --quiet postgres 2>/dev/null || true
+        fi
+
+    else
+        log "PostgreSQL is not installed. Nothing to reset."
+    fi
+
+    log "=== PostgreSQL Reset Completed ==="
 }
 
 # === Check if PostgreSQL is installed ===
@@ -60,7 +104,7 @@ provision_pg_with_checksums() {
 
     if [ -d "$PG_DATA_DIR" ]; then
         local checksum_status
-        checksum_status=$(sudo -u "$PG_USER" pg_controldata "$PG_DATA_DIR" | grep "Data page checksum version" || echo "missing")
+        checksum_status=$(sudo -u postgres "/usr/lib/postgresql/$PG_VERSION/bin/pg_controldata" "$PG_DATA_DIR" | grep "Data page checksum version" || echo "missing")
 
         if echo "$checksum_status" | grep -q "0"; then
             log "Checksums are disabled. Reinitializing cluster with checksums..."
@@ -82,7 +126,9 @@ provision_pg_with_checksums() {
         log "Cluster initialized with checksums."
     fi
 
-    sudo -u "$PG_USER" pg_controldata "$PG_DATA_DIR" | grep "Data page checksum version" | tee -a "$LOG_FILE"
+    #sudo -u "$PG_USER" pg_controldata "$PG_DATA_DIR" | grep "Data page checksum version" | tee -a "$LOG_FILE"
+    sudo -u postgres "/usr/lib/postgresql/$PG_VERSION/bin/pg_controldata" "$PG_DATA_DIR" | grep "Data page checksum version" | tee -a "$LOG_FILE"
+
 }
 
 # === Configure peer authentication ===
@@ -106,6 +152,22 @@ ensure_running() {
         sudo systemctl start "postgresql@$PG_VERSION-main"
     fi
 }
+
+### Parse arguments
+# Handle reset mode
+if [[ $# -eq 1 && "$1" == "--reset" ]]; then
+  reset_postgres
+fi
+
+# Validate argument count for provisioning
+if [[ $# -ne 3 ]]; then
+  echo "Usage: $0 <PG_VERSION> <PG_USER> <PG_DATA_DIR> or $0 --reset"
+  exit 1
+fi
+
+PG_VERSION="$1"
+PG_USER="$2"
+PG_DATA_DIR="$3"
 
 # === Main Execution ===
 log "=== PostgreSQL Setup Started ==="
