@@ -2,16 +2,17 @@
 set -euo pipefail
 
 ## Usage:
+# chmod +x weatherpi_python_env_provision.sh
 # Default setup
-#./setup_weatherpi.sh
+#./weatherpi_python_env_provision.sh
 # Custom venv location and log file
-#./setup_weatherpi.sh --venv-dir /opt/weatherpi --log-file /var/log/weatherpi.log
+#./weatherpi_python_env_provision.sh --venv-dir /opt/weatherpi --log-file /var/log/weatherpi.log
 # Add extra packages
-#./setup_weatherpi.sh --requirement adafruit-blinka --requirement RPi.GPIO
+#./weatherpi_python_env_provision.sh --requirement adafruit-blinka --requirement RPi.GPIO
 
 # 🧩 Default config
-DEFAULT_VENV_DIR="$HOME/weatherpi"
-DEFAULT_REQUIREMENTS=("adafruit-circuitpython-ahtx0")
+DEFAULT_VENV_DIR="$HOME/weatherpi_venv"
+DEFAULT_REQUIREMENTS=("adafruit-circuitpython-ahtx0","adafruit-blinka","RPi.GPIO","psycopg2-binary")
 DEFAULT_LOG_FILE="$HOME/weatherpi_setup.log"
 
 # 🧵 Parse arguments or use env vars
