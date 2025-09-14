@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sensor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    .section { margin-bottom: 3em; }
+    canvas { max-width: 100%; height: 400px; }
+    #status { font-size: 0.9em; color: gray; margin-bottom: 1em; }
+  </style>
+</head>
+<body>
+  <h1>🌡️ Sensor Dashboard</h1>
+  <div id="status">Initializing...</div>
+
+  <div class="section">
+    <h2>Last Hour</h2>
+    <canvas id="chartHour"></canvas>
+  </div>
+
+  <div class="section">
+    <h2>Last 7 Days</h2>
+    <canvas id="chart7d"></canvas>
+  </div>
+
+  <script>
+    const chartHour = new Chart(document.getElementById("chartHour"), {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "Temperature (°C)", data: [], borderColor: "#0077cc", backgroundColor: "rgba(0,119,204,0.2)", fill: true, tension: 0.3 }] },
+      options: {
+        scales: {
+          x: { type: "time", time: { unit: "minute" }, title: { display: true, text: "Time (UTC)" } },
+          y: { title: { display: true, text: "Temperature (°C)" } }
+        },
+        plugins: { legend: { display: true }, tooltip: { mode: "index", intersect: false } },
+        responsive: true
+      }
+    });
+
+    const chart7d = new Chart(document.getElementById("chart7d"), {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "Temperature (°C)", data: [], borderColor: "#cc3300", backgroundColor: "rgba(204,51,0,0.2)", fill: true, tension: 0.3 }] },
+      options: {
+        scales: {
+          x: { type: "time", time: { unit: "day" }, title: { display: true, text: "Date (UTC)" } },
+          y: { title: { display: true, text: "Temperature (°C)" } }
+        },
+        plugins: { legend: { display: true }, tooltip: { mode: "index", intersect: false } },
+        responsive: true
+      }
+    });
+
+    async function fetchAndUpdate(endpoint, chart) {
+      const ts = new Date().toISOString();
+      try {
+        const res = await fetch(`${endpoint}?_=${ts}`, { cache: "no-store" });
+        const json = await res.json();
+        const data = json.data || [];
+
+        chart.data.labels = data.map(d => d.timestamp);
+        chart.data.datasets[0].data = data.map(d => d.temperature);
+        chart.update();
+
+        document.getElementById("status").textContent = `Last updated: ${json.queried_at}`;
+      } catch (err) {
+        console.error(`Error fetching ${endpoint}:`, err);
+        document.getElementById("status").textContent = `Error fetching data from ${endpoint}`;
+      }
+    }
+
+    function updateAll() {
+      fetchAndUpdate("/temperature", chartHour);
+      fetchAndUpdate("/temperature_7d", chart7d);
+    }
+
+    updateAll();
+    setInterval(updateAll, 60000); // poll every 60s
+  </script>
+</body>
+</html>
