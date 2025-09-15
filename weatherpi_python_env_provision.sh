@@ -12,7 +12,7 @@ set -euo pipefail
 
 # 🧩 Default config
 DEFAULT_VENV_DIR="$HOME/weatherpi_venv"
-DEFAULT_REQUIREMENTS=("adafruit-circuitpython-ahtx0","adafruit-blinka","RPi.GPIO","psycopg2-binary")
+DEFAULT_REQUIREMENTS=("adafruit-circuitpython-ahtx0","adafruit-blinka","RPi.GPIO","psycopg2-binary","pytz")
 DEFAULT_LOG_FILE="$HOME/weatherpi_setup.log"
 
 # 🧵 Parse arguments or use env vars
