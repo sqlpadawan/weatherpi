@@ -33,7 +33,7 @@
       options: {
         scales: {
           x: { type: "time", time: { unit: "minute" }, title: { display: true, text: "Time (UTC)" } },
-          y: { title: { display: true, text: "Temperature (°F)" } }, min:-10, max:110
+          y: { title: { display: true, text: "Temperature (°F)" }, min:-10, max:110 }, 
         },
         plugins: { legend: { display: true }, tooltip: { mode: "index", intersect: false } },
         responsive: true
@@ -46,7 +46,7 @@
       options: {
         scales: {
           x: { type: "time", time: { unit: "day" }, title: { display: true, text: "Date (UTC)" } },
-          y: { title: { display: true, text: "Temperature (°F)" } }, min:-10, max:110
+          y: { title: { display: true, text: "Temperature (°F)" }, min:-10, max:110 }, 
         },
         plugins: { legend: { display: true }, tooltip: { mode: "index", intersect: false } },
         responsive: true
@@ -61,7 +61,7 @@
         const data = json.data || [];
 
         chart.data.labels = data.map(d => d.timestamp);
-        chart.data.datasets[0].data = data.map(d => d.temperature);
+        chart.data.datasets[0].data = data.map(d => d.temperature_f);
         chart.update();
 
         document.getElementById("status").textContent = `Last updated: ${json.queried_at}`;
