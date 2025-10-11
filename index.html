@@ -109,7 +109,7 @@
       const tubeWidth = 20;
       const tubeHeight = 300;
       const tubeTop = 50;
-      const bulbRadius = 25;
+      const bulbRadius = 20;
 
       // Draw tube
       ctx.strokeStyle = "#333";
@@ -124,7 +124,7 @@
 
       // Fill level
       const minTemp = -20;
-      const maxTemp = 120;
+      const maxTemp = 110;
       const percent = Math.min(1, Math.max(0, (tempF - minTemp) / (maxTemp - minTemp)));
       const fillHeight = tubeHeight * percent;
 
