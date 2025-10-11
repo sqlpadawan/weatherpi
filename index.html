@@ -29,11 +29,11 @@
   <script>
     const chartHour = new Chart(document.getElementById("chartHour"), {
       type: "line",
-      data: { labels: [], datasets: [{ label: "Temperature (°C)", data: [], borderColor: "#0077cc", backgroundColor: "rgba(0,119,204,0.2)", fill: true, tension: 0.3 }] },
+      data: { labels: [], datasets: [{ label: "Temperature (°F)", data: [], borderColor: "#0077cc", backgroundColor: "rgba(0,119,204,0.2)", fill: true, tension: 0.3 }] },
       options: {
         scales: {
           x: { type: "time", time: { unit: "minute" }, title: { display: true, text: "Time (UTC)" } },
-          y: { title: { display: true, text: "Temperature (°C)" } }
+          y: { title: { display: true, text: "Temperature (°F)" } }, min:-10, max:110
         },
         plugins: { legend: { display: true }, tooltip: { mode: "index", intersect: false } },
         responsive: true
@@ -42,11 +42,11 @@
 
     const chart7d = new Chart(document.getElementById("chart7d"), {
       type: "line",
-      data: { labels: [], datasets: [{ label: "Temperature (°C)", data: [], borderColor: "#cc3300", backgroundColor: "rgba(204,51,0,0.2)", fill: true, tension: 0.3 }] },
+      data: { labels: [], datasets: [{ label: "Temperature (°F)", data: [], borderColor: "#cc3300", backgroundColor: "rgba(204,51,0,0.2)", fill: true, tension: 0.3 }] },
       options: {
         scales: {
           x: { type: "time", time: { unit: "day" }, title: { display: true, text: "Date (UTC)" } },
-          y: { title: { display: true, text: "Temperature (°C)" } }
+          y: { title: { display: true, text: "Temperature (°F)" } }, min:-10, max:110
         },
         plugins: { legend: { display: true }, tooltip: { mode: "index", intersect: false } },
         responsive: true
